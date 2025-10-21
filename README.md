@@ -27,7 +27,7 @@ You need a C++ compiler (g++) installed. If you don't have one, see [Installing 
 3. Run the install script:
 
 ```powershell
-.\install.ps1
+.\install.bat
 ```
 
 The script will:
@@ -99,7 +99,7 @@ View current transparency (0=invisible, 255=opaque):
 massier transparency
 ```
 
-Set transparency (default: 150, recommended: 100-200):
+Set transparency (default: 200, recommended: 100-200):
 ```powershell
 massier transparency 150
 ```

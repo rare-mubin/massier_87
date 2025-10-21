@@ -422,7 +422,7 @@ void showHelp() {
     std::cout << "  massier startup enable   - Configure Massier to run on startup" << std::endl;
     std::cout << "  massier startup disable  - Remove Massier from startup" << std::endl;
     std::cout << "  massier startup status   - Check startup configuration" << std::endl;
-    std::cout << "  massier transparency <n> - Set transparency (0-255, default: 150)" << std::endl;
+    std::cout << "  massier transparency <n> - Set transparency (0-255, default: 200)" << std::endl;
     std::cout << "  massier transparency     - Show current transparency" << std::endl;
     std::cout << "  massier version          - Show version information" << std::endl;
     std::cout << "  massier help             - Show this help message" << std::endl;
