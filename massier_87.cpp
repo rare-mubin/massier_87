@@ -449,8 +449,8 @@ int handleStartup(const char* action) {
     // Build PowerShell command
     sprintf(cmdLine, "-ExecutionPolicy Bypass -File \"%s\" %s", scriptPath, action);
     
-    // For "enable" action, request administrator elevation
-    if (strcmp(action, "enable") == 0) {
+    // For "enable" and "disable" actions, request administrator elevation
+    if (strcmp(action, "enable") == 0 || strcmp(action, "disable") == 0) {
         SHELLEXECUTEINFOA sei = {sizeof(sei)};
         sei.lpVerb = "runas";  // Request elevation
         sei.lpFile = "powershell.exe";
@@ -472,7 +472,7 @@ int handleStartup(const char* action) {
             return 1;
         }
     } else {
-        // For other actions (disable, status), run normally
+        // For "status" action, run normally without elevation
         sprintf(cmdLine, "powershell.exe -ExecutionPolicy Bypass -File \"%s\" %s", scriptPath, action);
         
         STARTUPINFOA si = {sizeof(si)};
