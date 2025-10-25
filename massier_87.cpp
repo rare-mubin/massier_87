@@ -9,9 +9,21 @@
 #define PROCESS_NAME "massier_87.exe"
 #define CONFIG_FILE "massier_config.ini"
 #define DEFAULT_TRANSPARENCY 200
-#define MASSIER_VERSION "v1.0"
+#define MASSIER_VERSION "v1.1"
+
+// KEYS - Customize keyboard shortcuts here
+#define KEY_DRAG_MODIFIER VK_MENU        // Alt key for drag modifier
+#define KEY_LAPTOP_MODE 'Q'              // Q key for laptop mode (Alt+Q to drag)
+#define KEY_RESIZE_MODIFIER VK_MENU      // Alt key for resize modifier
+
+// Mouse buttons
+#define MOUSE_DRAG_BUTTON VK_LBUTTON     // Left mouse button for dragging
+#define MOUSE_RESIZE_BUTTON VK_RBUTTON   // Right mouse button for resizing
+
 
 // Global variables
+bool qKeyPressed = false;  // Track if Q key is pressed (for laptop mode)
+bool laptopModeDrag = false;  // Track if drag was started by laptop mode
 bool altPressed = false;
 bool dragging = false;
 bool resizing = false;
@@ -25,13 +37,61 @@ POINT resizeAnchor = {0, 0};  // The corner that stays fixed during resize
 bool wasMaximized = false;  // Track if window was just restored from maximized
 int transparencyLevel = DEFAULT_TRANSPARENCY;  // Transparency level (0-255)
 
+// Keyboard hook to detect laptop mode key
+LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+    if (nCode >= 0) {
+        KBDLLHOOKSTRUCT* kbStruct = (KBDLLHOOKSTRUCT*)lParam;
+        
+        // Check if laptop mode key is pressed or released
+        if (kbStruct->vkCode == KEY_LAPTOP_MODE) {
+            bool altHeld = (GetAsyncKeyState(KEY_DRAG_MODIFIER) & 0x8000) != 0;
+            
+            if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
+                qKeyPressed = true;
+                
+                // Block the Q key if Alt is held (for laptop mode)
+                if (altHeld) {
+                    return 1;
+                }
+            } else if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
+                qKeyPressed = false;
+                
+                // If we were dragging in laptop mode, stop the drag immediately
+                if (laptopModeDrag && dragging && dragWindow) {
+                    POINT pt;
+                    GetCursorPos(&pt);
+                    
+                    // Check if mouse is at the top of the screen - maximize
+                    if (pt.y <= 5) {
+                        ShowWindow(dragWindow, SW_MAXIMIZE);
+                    }
+                    
+                    // Reset transparency
+                    SetLayeredWindowAttributes(dragWindow, 0, 255, LWA_ALPHA);
+                    SetWindowLong(dragWindow, GWL_EXSTYLE, 
+                                 GetWindowLong(dragWindow, GWL_EXSTYLE) & ~WS_EX_LAYERED);
+                    dragging = false;
+                    dragWindow = NULL;
+                    laptopModeDrag = false;
+                }
+                
+                // Block the Q key release if Alt is held
+                if (altHeld) {
+                    return 1;
+                }
+            }
+        }
+    }
+    return CallNextHookEx(NULL, nCode, wParam, lParam);
+}
+
 // Low-level mouse hook procedure
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode >= 0) {
         MSLLHOOKSTRUCT* mouseStruct = (MSLLHOOKSTRUCT*)lParam;
         
-        // Alt + Left button down
-        if (wParam == WM_LBUTTONDOWN && (GetAsyncKeyState(VK_MENU) & 0x8000)) {
+        // Alt + Left button down - HANDLE THIS FIRST
+        if (wParam == WM_LBUTTONDOWN && (GetAsyncKeyState(KEY_DRAG_MODIFIER) & 0x8000)) {
             POINT pt = mouseStruct->pt;
             HWND hwnd = WindowFromPoint(pt);
             
@@ -77,28 +137,16 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                     return CallNextHookEx(NULL, nCode, wParam, lParam);
                 }
                 
-                // Start dragging
+                // Start dragging (Alt+LeftClick)
                 dragWindow = hwnd;
                 dragging = true;
+                laptopModeDrag = false;  // Started by left click
                 
-                // Focus and activate the window
-                // DON'T simulate Alt key events - keep it simple
-                DWORD currentThreadId = GetCurrentThreadId();
-                DWORD windowThreadId = GetWindowThreadProcessId(hwnd, NULL);
-                
-                // Temporarily attach to window's thread to force focus
-                BOOL attached = FALSE;
-                if (windowThreadId != currentThreadId) {
-                    attached = AttachThreadInput(currentThreadId, windowThreadId, TRUE);
-                }
-                
-                BringWindowToTop(hwnd);
-                SetForegroundWindow(hwnd);
-                
-                // Detach if we attached
-                if (attached) {
-                    AttachThreadInput(currentThreadId, windowThreadId, FALSE);
-                }
+                // Bring window to top without activating (prevents taskbar blinking)
+                SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, 
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, 
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
                 
                 // Set window transparency
                 SetWindowLong(hwnd, GWL_EXSTYLE, GetWindowLong(hwnd, GWL_EXSTYLE) | WS_EX_LAYERED);
@@ -109,7 +157,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         }
         
         // Alt + Right button down - Start resizing
-        if (wParam == WM_RBUTTONDOWN && (GetAsyncKeyState(VK_MENU) & 0x8000)) {
+        if (wParam == WM_RBUTTONDOWN && (GetAsyncKeyState(KEY_RESIZE_MODIFIER) & 0x8000)) {
             POINT pt = mouseStruct->pt;
             HWND hwnd = WindowFromPoint(pt);
             
@@ -171,6 +219,66 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 SetLayeredWindowAttributes(hwnd, 0, transparencyLevel, LWA_ALPHA);
                 
                 return 1; // Block the click
+            }
+        }
+        
+        // Laptop mode: Alt+Q+MouseMove = Start dragging (ONLY if left button not pressed)
+        // This runs AFTER the button handlers so Alt+LeftClick takes priority
+        if (wParam == WM_MOUSEMOVE && qKeyPressed && (GetAsyncKeyState(KEY_DRAG_MODIFIER) & 0x8000) && !dragging && !resizing) {
+            // Don't interfere if left mouse button is being held
+            if (GetAsyncKeyState(MOUSE_DRAG_BUTTON) & 0x8000) {
+                return CallNextHookEx(NULL, nCode, wParam, lParam);
+            }
+            
+            POINT pt = mouseStruct->pt;
+            HWND hwnd = WindowFromPoint(pt);
+            
+            if (hwnd) {
+                // Get the root window first
+                HWND hwndTop = GetAncestor(hwnd, GA_ROOT);
+                if (hwndTop) hwnd = hwndTop;
+                
+                // Check if window is maximized
+                WINDOWPLACEMENT wp = {sizeof(WINDOWPLACEMENT)};
+                GetWindowPlacement(hwnd, &wp);
+                if (wp.showCmd == SW_MAXIMIZE) {
+                    dragStartMouse = pt;
+                    ShowWindow(hwnd, SW_RESTORE);
+                    
+                    RECT rect;
+                    GetWindowRect(hwnd, &rect);
+                    dragOffset.x = pt.x - rect.left;
+                    dragOffset.y = pt.y - rect.top;
+                    wasMaximized = true;
+                } else {
+                    RECT rect;
+                    GetWindowRect(hwnd, &rect);
+                    dragOffset.x = pt.x - rect.left;
+                    dragOffset.y = pt.y - rect.top;
+                    wasMaximized = false;
+                }
+                
+                // Check if it's a VNC viewer
+                char className[256];
+                GetClassNameA(hwnd, className, 256);
+                if (strstr(className, "vnc") || strstr(className, "VNC")) {
+                    return CallNextHookEx(NULL, nCode, wParam, lParam);
+                }
+                
+                // Start dragging (Laptop mode - Alt+Q)
+                dragWindow = hwnd;
+                dragging = true;
+                laptopModeDrag = true;  // Started by laptop mode
+                
+                // Bring window to top without activating (prevents taskbar blinking)
+                SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, 
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, 
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                
+                // Set window transparency
+                SetWindowLong(hwnd, GWL_EXSTYLE, GetWindowLong(hwnd, GWL_EXSTYLE) | WS_EX_LAYERED);
+                SetLayeredWindowAttributes(hwnd, 0, transparencyLevel, LWA_ALPHA);
             }
         }
         
@@ -298,6 +406,7 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
             }
             dragging = false;
             dragWindow = NULL;
+            laptopModeDrag = false;
             return 1; // Block the left button up to prevent window close
         }
     }
@@ -429,8 +538,10 @@ void showHelp() {
     std::cout << "\nFeatures:------------------------------------------------------------" << std::endl;
     std::cout << "  Alt+Left Click  - Move windows" << std::endl;
     std::cout << "  Alt+Right Click - Resize windows" << std::endl;
+    std::cout << "  Alt+Q           - Laptop mode (move without mouse click)" << std::endl;
     std::cout << "  Drag to top     - Maximize window" << std::endl;
-    std::cout << "\nNote: Transparency 0=invisible, 255=opaque\n" << std::endl;
+    std::cout << "\nNote: Transparency 0=invisible, 255=opaque" << std::endl;
+    std::cout << "      Keys can be customized in source code (KEY_* defines)\n" << std::endl;
 }
 
 // Handle startup configuration
@@ -608,7 +719,16 @@ int main(int argc, char* argv[]) {
     HHOOK mouseHook = SetWindowsHookEx(WH_MOUSE_LL, MouseProc, NULL, 0);
     
     if (!mouseHook) {
-        MessageBoxA(NULL, "Failed to install hook!", "Error", MB_OK);
+        MessageBoxA(NULL, "Failed to install mouse hook!", "Error", MB_OK);
+        return 1;
+    }
+    
+    // Install keyboard hook for laptop mode (Alt+Q)
+    HHOOK keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardProc, NULL, 0);
+    
+    if (!keyboardHook) {
+        MessageBoxA(NULL, "Failed to install keyboard hook!", "Error", MB_OK);
+        UnhookWindowsHookEx(mouseHook);
         return 1;
     }
     
@@ -623,6 +743,7 @@ int main(int argc, char* argv[]) {
     
     // Cleanup
     UnhookWindowsHookEx(mouseHook);
+    UnhookWindowsHookEx(keyboardHook);
     if (hMutex) {
         ReleaseMutex(hMutex);
         CloseHandle(hMutex);

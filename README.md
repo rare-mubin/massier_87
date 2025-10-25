@@ -145,7 +145,7 @@ massier version
 
 Massier uses Windows low-level mouse hooks to intercept Alt+Click combinations globally across all windows. When you:
 
-1. **Alt + Left Click** - Massier calculates the offset from the mouse to the window corner and moves the window to follow your mouse
+1. **Alt + Left Click or Q** - Massier calculates the offset from the mouse to the window corner and moves the window to follow your mouse
 2. **Alt + Right Click** - Massier determines the closest corner/edge as an anchor point and resizes the window from that anchor
 3. **Drag to top** - When you drag a window to within 5 pixels of the top screen edge and release, it automatically maximizes
 
@@ -185,7 +185,7 @@ g++ --version
 
 ## Version
 
-Current version: **v1.0**
+Current version: **v1.1**
 
 ## License
 

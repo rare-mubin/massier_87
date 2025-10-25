@@ -50,5 +50,12 @@ if (Test-Path $vbsPath) {
     Write-Host "Removed massier_silent.vbs" -ForegroundColor Green
 }
 
+# Remove executable
+$exePath = "$installPath\massier_87.exe"
+if (Test-Path $exePath) {
+    Remove-Item $exePath
+    Write-Host "Removed massier_87.exe" -ForegroundColor Green
+}
+
 Write-Host "`nUninstallation complete!" -ForegroundColor Green
 Write-Host "You can now delete the Massier_87 folder if desired." -ForegroundColor Cyan
