@@ -9,19 +9,28 @@
 #define PROCESS_NAME "massier_87.exe"
 #define CONFIG_FILE "massier_config.ini"
 #define DEFAULT_TRANSPARENCY 200
-#define MASSIER_VERSION "v1.1"
+#define MASSIER_VERSION "v1.2"
 
 // KEYS - Customize keyboard shortcuts here
 #define KEY_DRAG_MODIFIER VK_MENU        // Alt key for drag modifier
 #define KEY_LAPTOP_MODE 'Q'              // Q key for laptop mode (Alt+Q to drag)
 #define KEY_RESIZE_MODIFIER VK_MENU      // Alt key for resize modifier
+#define KEY_CLOSE_MODIFIER VK_MENU       // Alt key for close modifier
+#define KEY_CLOSE 'C'                    // C key for closing window (Alt+C)
+#define KEY_MAXIMIZE_MODIFIER VK_MENU    // Alt key for maximize modifier
+#define KEY_MAXIMIZE 'V'                 // V key for maximizing window (Alt+V)
 
 // Mouse buttons
 #define MOUSE_DRAG_BUTTON VK_LBUTTON     // Left mouse button for dragging
 #define MOUSE_RESIZE_BUTTON VK_RBUTTON   // Right mouse button for resizing
 
+// Double click settings
+#define DOUBLE_CLICK_TIME 500            // Maximum time between clicks (ms)
+
 
 // Global variables
+DWORD lastClickTime = 0;                 // Time of last click for double-click detection
+POINT lastClickPos = {0, 0};             // Position of last click for double-click detection
 bool qKeyPressed = false;  // Track if Q key is pressed (for laptop mode)
 bool laptopModeDrag = false;  // Track if drag was started by laptop mode
 bool altPressed = false;
@@ -41,6 +50,78 @@ int transparencyLevel = DEFAULT_TRANSPARENCY;  // Transparency level (0-255)
 LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode >= 0) {
         KBDLLHOOKSTRUCT* kbStruct = (KBDLLHOOKSTRUCT*)lParam;
+        
+        // Close window with Alt+C (window under cursor)
+        if (kbStruct->vkCode == KEY_CLOSE && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)) {
+            bool altHeld = (GetAsyncKeyState(KEY_CLOSE_MODIFIER) & 0x8000) != 0;
+            
+            if (altHeld) {
+                // Get the window under the cursor
+                POINT pt;
+                GetCursorPos(&pt);
+                HWND hwnd = WindowFromPoint(pt);
+                
+                if (hwnd) {
+                    // Get the root/parent window
+                    HWND hwndTop = GetAncestor(hwnd, GA_ROOT);
+                    if (hwndTop) hwnd = hwndTop;
+                    
+                    // Check if it's a VNC viewer (don't close these)
+                    char className[256];
+                    GetClassNameA(hwnd, className, 256);
+                    if (strstr(className, "vnc") || strstr(className, "VNC")) {
+                        return CallNextHookEx(NULL, nCode, wParam, lParam);
+                    }
+                    
+                    // Send close message to the window
+                    PostMessage(hwnd, WM_CLOSE, 0, 0);
+                }
+                return 1; // Block the key
+            }
+        }
+        
+        // Maximize/Restore window with Alt+V (window under cursor)
+        if (kbStruct->vkCode == KEY_MAXIMIZE && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)) {
+            bool altHeld = (GetAsyncKeyState(KEY_MAXIMIZE_MODIFIER) & 0x8000) != 0;
+            
+            if (altHeld) {
+                // Get the window under the cursor
+                POINT pt;
+                GetCursorPos(&pt);
+                HWND hwnd = WindowFromPoint(pt);
+                
+                if (hwnd) {
+                    // Get the root/parent window
+                    HWND hwndTop = GetAncestor(hwnd, GA_ROOT);
+                    if (hwndTop) hwnd = hwndTop;
+                    
+                    // Check if it's a VNC viewer
+                    char className[256];
+                    GetClassNameA(hwnd, className, 256);
+                    if (strstr(className, "vnc") || strstr(className, "VNC")) {
+                        return CallNextHookEx(NULL, nCode, wParam, lParam);
+                    }
+                    
+                    // Check current window state
+                    WINDOWPLACEMENT wp = {sizeof(WINDOWPLACEMENT)};
+                    GetWindowPlacement(hwnd, &wp);
+                    
+                    // Bring window to top without activating (prevents taskbar blinking)
+                    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, 
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                    SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, 
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                    
+                    // Toggle between maximized and restored
+                    if (wp.showCmd == SW_MAXIMIZE) {
+                        ShowWindow(hwnd, SW_RESTORE);
+                    } else {
+                        ShowWindow(hwnd, SW_MAXIMIZE);
+                    }
+                }
+                return 1; // Block the key
+            }
+        }
         
         // Check if laptop mode key is pressed or released
         if (kbStruct->vkCode == KEY_LAPTOP_MODE) {
@@ -89,8 +170,60 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
 LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode >= 0) {
         MSLLHOOKSTRUCT* mouseStruct = (MSLLHOOKSTRUCT*)lParam;
+
+        // Handle Alt + Double Click for maximize/restore
+        if (wParam == WM_LBUTTONDOWN && (GetAsyncKeyState(KEY_DRAG_MODIFIER) & 0x8000)) {
+            POINT pt = mouseStruct->pt;
+            DWORD currentTime = GetTickCount();
+            
+            // Check if this is a double click (same position and within time threshold)
+            if (currentTime - lastClickTime <= DOUBLE_CLICK_TIME &&
+                abs(pt.x - lastClickPos.x) <= GetSystemMetrics(SM_CXDOUBLECLK) &&
+                abs(pt.y - lastClickPos.y) <= GetSystemMetrics(SM_CYDOUBLECLK)) {
+                
+                // Get the window under the cursor
+                HWND hwnd = WindowFromPoint(pt);
+                if (hwnd) {
+                    // Get the root/parent window
+                    HWND hwndTop = GetAncestor(hwnd, GA_ROOT);
+                    if (hwndTop) hwnd = hwndTop;
+                    
+                    // Check if it's a VNC viewer
+                    char className[256];
+                    GetClassNameA(hwnd, className, 256);
+                    if (strstr(className, "vnc") || strstr(className, "VNC")) {
+                        return CallNextHookEx(NULL, nCode, wParam, lParam);
+                    }
+                    
+                    // Check current window state
+                    WINDOWPLACEMENT wp = {sizeof(WINDOWPLACEMENT)};
+                    GetWindowPlacement(hwnd, &wp);
+                    
+                    // Bring window to top without activating (prevents taskbar blinking)
+                    SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, 
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                    SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, 
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                    
+                    // Toggle between maximized and restored
+                    if (wp.showCmd == SW_MAXIMIZE) {
+                        ShowWindow(hwnd, SW_RESTORE);
+                    } else {
+                        ShowWindow(hwnd, SW_MAXIMIZE);
+                    }
+                    
+                    // Reset click tracking (to prevent triple-click issues)
+                    lastClickTime = 0;
+                    return 1; // Block the click
+                }
+            }
+            
+            // Update last click info for next time
+            lastClickTime = currentTime;
+            lastClickPos = pt;
+        }
         
-        // Alt + Left button down - HANDLE THIS FIRST
+        // Alt + Left button down - HANDLE THIS NEXT
         if (wParam == WM_LBUTTONDOWN && (GetAsyncKeyState(KEY_DRAG_MODIFIER) & 0x8000)) {
             POINT pt = mouseStruct->pt;
             HWND hwnd = WindowFromPoint(pt);
@@ -100,27 +233,21 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 HWND hwndTop = GetAncestor(hwnd, GA_ROOT);
                 if (hwndTop) hwnd = hwndTop;
                 
+                // Save initial mouse position and check window state
+                dragStartMouse = pt;
+                
                 // Check if window is maximized
                 WINDOWPLACEMENT wp = {sizeof(WINDOWPLACEMENT)};
                 GetWindowPlacement(hwnd, &wp);
                 if (wp.showCmd == SW_MAXIMIZE) {
-                    // Save initial mouse position
-                    dragStartMouse = pt;
+                    // Just store the state for now, don't restore yet
+                    wasMaximized = true;
                     
-                    // Restore to normal mode
-                    ShowWindow(hwnd, SW_RESTORE);
-                    
-                    // Get the restored window rect
+                    // Get the current window rect for initial offset
                     RECT rect;
                     GetWindowRect(hwnd, &rect);
-                    
-                    // Calculate drag offset as if cursor was at the position where it is
-                    // This prevents any jumping
                     dragOffset.x = pt.x - rect.left;
                     dragOffset.y = pt.y - rect.top;
-                    
-                    // Mark that we just restored from maximized
-                    wasMaximized = true;
                 } else {
                     // Normal window - calculate offset normally
                     RECT rect;
@@ -293,12 +420,23 @@ LRESULT CALLBACK MouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
             }
             
             if (wasMaximized) {
-                // For restored maximized windows, only start moving after some mouse movement
+                // For maximized windows, check if we should start dragging
                 int deltaX = pt.x - dragStartMouse.x;
                 int deltaY = pt.y - dragStartMouse.y;
                 
-                // Check if mouse has moved enough to start dragging
+                // Only restore and start dragging if mouse has moved enough
                 if (abs(deltaX) > 5 || abs(deltaY) > 5) {
+                    // First time exceeding threshold - restore the window
+                    if (IsZoomed(dragWindow)) {
+                        ShowWindow(dragWindow, SW_RESTORE);
+                        
+                        // Recalculate offset for restored window
+                        RECT rect;
+                        GetWindowRect(dragWindow, &rect);
+                        dragOffset.x = pt.x - rect.left;
+                        dragOffset.y = pt.y - rect.top;
+                    }
+                    
                     // Now move the window
                     SetWindowPos(dragWindow, NULL, 
                                 pt.x - dragOffset.x, 
@@ -536,10 +674,14 @@ void showHelp() {
     std::cout << "  massier version          - Show version information" << std::endl;
     std::cout << "  massier help             - Show this help message" << std::endl;
     std::cout << "\nFeatures:------------------------------------------------------------" << std::endl;
-    std::cout << "  Alt+Left Click  - Move windows" << std::endl;
-    std::cout << "  Alt+Right Click - Resize windows" << std::endl;
-    std::cout << "  Alt+Q           - Laptop mode (move without mouse click)" << std::endl;
-    std::cout << "  Drag to top     - Maximize window" << std::endl;
+    std::cout << "  Alt+Left Click      - Move windows" << std::endl;
+    std::cout << "  Alt+Double Click    - Maximize/Restore window under cursor" << std::endl;
+    std::cout << "  Drag to top         - Maximize window" << std::endl;
+    std::cout << "  Alt+Right Click     - Resize windows" << std::endl;
+    std::cout << "  Alt+Q               - Laptop mode (move without mouse click)" << std::endl;
+    std::cout << "  Alt+X               - Close window under mouse cursor" << std::endl;
+    std::cout << "  Alt+Z               - Maximize/Restore window under mouse cursor" << std::endl;
+    std::cout << "  Drag to top         - Maximize window" << std::endl;
     std::cout << "\nNote: Transparency 0=invisible, 255=opaque" << std::endl;
     std::cout << "      Keys can be customized in source code (KEY_* defines)\n" << std::endl;
 }

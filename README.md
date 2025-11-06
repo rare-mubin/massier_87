@@ -4,11 +4,22 @@
 
 ## Features
 
+### Window Management
 - **Alt + Left Click + Drag** - Move any window
 - **Alt + Right Click + Drag** - Resize any window from any corner/edge
+- **Alt + Double Click** - Maximize/Restore window under cursor
+- **Alt + Q** - Laptop mode: Move window under cursor without clicking
+- **Alt + C** - Close window under cursor
+- **Alt + V** - Maximize/Restore window under cursor and bring to front
 - **Drag to top edge** - Maximize window automatically
-- **Auto-restore maximized windows** - Automatically restores maximized windows when you start dragging
-- **Transparent windows during operations** - Windows become semi-transparent while moving/resizing
+
+### Behavior
+- **Smart maximize/restore** - Window only restore from maximized state when you start dragging
+- **Window focus** - Window set to on top on operations
+- **Transparent windows** - Window become semi-transparent while moving/resizing
+- **Configurable keys** - All keyboard shortcuts can be customized in source code
+
+### System
 - **Configurable transparency** - Adjust transparency level via command line
 - **Background service** - Runs silently in the background
 - **Startup configuration** - Optionally run on Windows startup with administrator privileges
@@ -141,16 +152,6 @@ massier help
 massier version
 ```
 
-## How It Works
-
-Massier uses Windows low-level mouse hooks to intercept Alt+Click combinations globally across all windows. When you:
-
-1. **Alt + Left Click or Q** - Massier calculates the offset from the mouse to the window corner and moves the window to follow your mouse
-2. **Alt + Right Click** - Massier determines the closest corner/edge as an anchor point and resizes the window from that anchor
-3. **Drag to top** - When you drag a window to within 5 pixels of the top screen edge and release, it automatically maximizes
-
-The application runs as a background process with no visible window, consuming minimal system resources.
-
 ## Uninstallation
 
 Run the uninstall script:
@@ -185,7 +186,7 @@ g++ --version
 
 ## Version
 
-Current version: **v1.1**
+Current version: **v1.2**
 
 ## License
 
