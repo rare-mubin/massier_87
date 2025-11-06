@@ -51,7 +51,7 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode >= 0) {
         KBDLLHOOKSTRUCT* kbStruct = (KBDLLHOOKSTRUCT*)lParam;
         
-        // Close window with Alt+C (window under cursor)
+        // Close window with Alt+C (window under cursor or focused window if on desktop)
         if (kbStruct->vkCode == KEY_CLOSE && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN)) {
             bool altHeld = (GetAsyncKeyState(KEY_CLOSE_MODIFIER) & 0x8000) != 0;
             
@@ -66,15 +66,34 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                     HWND hwndTop = GetAncestor(hwnd, GA_ROOT);
                     if (hwndTop) hwnd = hwndTop;
                     
-                    // Check if it's a VNC viewer (don't close these)
+                    // Check if cursor is on desktop or taskbar
                     char className[256];
                     GetClassNameA(hwnd, className, 256);
+                    
+                    // If on desktop, close the foreground window instead
+                    if (strstr(className, "Progman") || strstr(className, "WorkerW") || 
+                        strstr(className, "Shell_TrayWnd") || strstr(className, "Shell_SecondaryTrayWnd")) {
+                        hwnd = GetForegroundWindow();
+                        if (hwnd) {
+                            GetClassNameA(hwnd, className, 256);
+                        }
+                    }
+                    
+                    // Check if it's a VNC viewer (don't close these)
                     if (strstr(className, "vnc") || strstr(className, "VNC")) {
                         return CallNextHookEx(NULL, nCode, wParam, lParam);
                     }
                     
+                    // Don't close desktop or taskbar
+                    if (strstr(className, "Progman") || strstr(className, "WorkerW") || 
+                        strstr(className, "Shell_TrayWnd") || strstr(className, "Shell_SecondaryTrayWnd")) {
+                        return CallNextHookEx(NULL, nCode, wParam, lParam);
+                    }
+                    
                     // Send close message to the window
-                    PostMessage(hwnd, WM_CLOSE, 0, 0);
+                    if (hwnd) {
+                        PostMessage(hwnd, WM_CLOSE, 0, 0);
+                    }
                 }
                 return 1; // Block the key
             }
@@ -679,8 +698,8 @@ void showHelp() {
     std::cout << "  Drag to top         - Maximize window" << std::endl;
     std::cout << "  Alt+Right Click     - Resize windows" << std::endl;
     std::cout << "  Alt+Q               - Laptop mode (move without mouse click)" << std::endl;
-    std::cout << "  Alt+X               - Close window under mouse cursor" << std::endl;
-    std::cout << "  Alt+Z               - Maximize/Restore window under mouse cursor" << std::endl;
+    std::cout << "  Alt+C               - Close window under mouse cursor" << std::endl;
+    std::cout << "  Alt+V               - Maximize/Restore window under mouse cursor" << std::endl;
     std::cout << "  Drag to top         - Maximize window" << std::endl;
     std::cout << "\nNote: Transparency 0=invisible, 255=opaque" << std::endl;
     std::cout << "      Keys can be customized in source code (KEY_* defines)\n" << std::endl;
